@@ -334,7 +334,7 @@ internal class SentryNavStateHolder<T : Any> internal constructor(private val sc
    * TTFD metrics in users' Mobile Vitals dashboards.
    */
   private fun IScopes.startNav3Transaction(routeName: String, arguments: Map<String, Any?>) {
-    if (this.span != null) {
+    if (hasBlockingSpanForNav3Transaction()) {
       this.options.logger.log(
         DEBUG,
         "Nav3 transaction for route %s won't be created because another transaction or span is active.",
@@ -381,6 +381,25 @@ internal class SentryNavStateHolder<T : Any> internal constructor(private val sc
         }
       }
     }
+  }
+
+  /**
+   * Clears a stale finished transaction that is still bound to the scope, then reports whether any
+   * active span context remains that should block a new nav transaction.
+   */
+  private fun IScopes.hasBlockingSpanForNav3Transaction(): Boolean {
+    var hasBlockingSpan = false
+
+    this.configureScope { scope ->
+      scope.withTransaction { tx ->
+        if (tx?.isFinished == true) {
+          scope.clearTransaction()
+        }
+      }
+      hasBlockingSpan = scope.span != null
+    }
+
+    return hasBlockingSpan
   }
 
   /**

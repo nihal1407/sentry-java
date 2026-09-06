@@ -382,6 +382,25 @@ class SentryNavStateHolderTest {
   }
 
   @Test
+  fun `onBackStackChanged clears finished scope transaction before starting nav transaction`() {
+    val sut = fixture.getSut()
+    val realScope = Scope(fixture.options)
+    val finishedTransaction =
+      SentryTracer(TransactionContext("Nav3Activity", "ui.load"), fixture.scopes)
+    finishedTransaction.finish()
+    realScope.transaction = finishedTransaction
+
+    whenever(fixture.scopes.configureScope(any())).thenAnswer {
+      (it.arguments[0] as ScopeCallback).run(realScope)
+    }
+
+    sut.onBackStackChanged(listOf(HomeScreen()))
+
+    verify(fixture.scopes).startTransaction(any<TransactionContext>(), any<TransactionOptions>())
+    assertThat(realScope.transaction).isSameInstanceAs(fixture.transaction)
+  }
+
+  @Test
   fun `onBackStackChanged finishes previous transaction before starting new one`() {
     val sut = fixture.getSut()
 
@@ -445,8 +464,8 @@ class SentryNavStateHolderTest {
     sut.onBackStackChanged(listOf(HomeScreen()))
 
     val captor = argumentCaptor<IWithTransaction>()
-    verify(fixture.scope).withTransaction(captor.capture())
-    captor.firstValue.accept(null)
+    verify(fixture.scope, times(2)).withTransaction(captor.capture())
+    captor.lastValue.accept(null)
     verify(fixture.scope).transaction = fixture.transaction
   }
 
@@ -457,8 +476,8 @@ class SentryNavStateHolderTest {
     sut.onBackStackChanged(listOf(HomeScreen()))
 
     val captor = argumentCaptor<IWithTransaction>()
-    verify(fixture.scope).withTransaction(captor.capture())
-    captor.firstValue.accept(mock())
+    verify(fixture.scope, times(2)).withTransaction(captor.capture())
+    captor.lastValue.accept(mock())
     verify(fixture.scope, never()).transaction = fixture.transaction
   }
 
