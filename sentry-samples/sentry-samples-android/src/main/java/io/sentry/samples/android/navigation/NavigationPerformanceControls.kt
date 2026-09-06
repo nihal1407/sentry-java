@@ -121,6 +121,11 @@ internal class NavigationPerformanceState(private val measureRenderLatency: Bool
     displayRevision++
   }
 
+  fun stopAutomaticWork() {
+    autoRecompose = false
+    autoNavigate = false
+  }
+
   fun nextGeneration(): Int {
     generation++
     return generation

@@ -273,6 +273,7 @@ class Nav2Activity : AppCompatActivity() {
                 backStack.map { destination -> "/${destination.routeName}" }
               ),
             state = performanceState,
+            showExtractorControls = false,
             onBuildStack = { buildNav2PerformanceStack() },
             onReplaceTop = { replaceNav2PerformanceTop() },
           )
