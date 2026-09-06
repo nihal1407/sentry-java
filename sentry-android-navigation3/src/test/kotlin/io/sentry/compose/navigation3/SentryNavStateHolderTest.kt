@@ -39,6 +39,7 @@ data class ProfileScreen(val userId: String)
 
 data class SettingsScreen(val section: String)
 
+@Suppress("LargeClass")
 class SentryNavStateHolderTest {
 
   class Fixture {
@@ -157,17 +158,17 @@ class SentryNavStateHolderTest {
   }
 
   @Test
-  fun `onBackStackChanged is idempotent for same backstack`() {
+  fun `onBackStackChanged records every call for same backstack`() {
     val sut = fixture.getSut()
     val backStack = listOf<Any>(HomeScreen())
 
     sut.onBackStackChanged(backStack)
     sut.onBackStackChanged(backStack)
 
-    verify(fixture.scopes, times(1)).addBreadcrumb(any<Breadcrumb>(), any())
-    verify(fixture.scopes, times(1))
+    verify(fixture.scopes, times(2)).addBreadcrumb(any<Breadcrumb>(), any())
+    verify(fixture.scopes, times(2))
       .startTransaction(any<TransactionContext>(), any<TransactionOptions>())
-    verify(fixture.scope, times(1)).setContexts(any<String>(), any<Any>())
+    verify(fixture.scope, times(2)).setContexts(any<String>(), any<Any>())
   }
 
   @Test
@@ -552,7 +553,7 @@ class SentryNavStateHolderTest {
   }
 
   @Test
-  fun `extractor change updates screen and context without new navigation event`() {
+  fun `extractor change records a new navigation event`() {
     val sut = fixture.getSut()
     val backStack = listOf<Any>(HomeScreen())
 
@@ -564,9 +565,8 @@ class SentryNavStateHolderTest {
 
     verify(fixture.scope).screen = "/custom-home"
     verify(fixture.scope).setContexts(any<String>(), any<Any>())
-    verify(fixture.scopes, never()).addBreadcrumb(any<Breadcrumb>(), any())
-    verify(fixture.scopes, never())
-      .startTransaction(any<TransactionContext>(), any<TransactionOptions>())
+    verify(fixture.scopes).addBreadcrumb(any<Breadcrumb>(), any())
+    verify(fixture.scopes).startTransaction(any<TransactionContext>(), any<TransactionOptions>())
   }
 
   @Suppress("UNCHECKED_CAST")
@@ -632,13 +632,13 @@ class SentryNavStateHolderTest {
   }
 
   @Test
-  fun `onBackStackChanged does not attach backstack when context disabled`() {
+  fun `onBackStackChanged clears navigation context when context disabled`() {
     val sut = fixture.getSut(enableBackstackContext = false)
 
     sut.onBackStackChanged(listOf(HomeScreen()))
 
     verify(fixture.scope, never()).setContexts(any<String>(), any<Any>())
-    verify(fixture.scope, never()).removeContexts("navigation")
+    verify(fixture.scope).removeContexts("navigation")
   }
 
   @Test
@@ -661,7 +661,7 @@ class SentryNavStateHolderTest {
   }
 
   @Test
-  fun `disabling backstack context removes navigation context once`() {
+  fun `disabling backstack context removes navigation context on every call`() {
     val sut = fixture.getSut()
     val backStack = listOf<Any>(HomeScreen())
 
@@ -672,7 +672,7 @@ class SentryNavStateHolderTest {
     sut.onBackStackChanged(backStack)
     sut.onBackStackChanged(backStack)
 
-    verify(fixture.scope, times(1)).removeContexts("navigation")
+    verify(fixture.scope, times(2)).removeContexts("navigation")
     verify(fixture.scope, never()).setContexts(any<String>(), any<Any>())
   }
 
@@ -705,13 +705,13 @@ class SentryNavStateHolderTest {
   }
 
   @Test
-  fun `onBackStackChanged does not fire breadcrumb when only deeper entries change`() {
+  fun `onBackStackChanged fires breadcrumb when only deeper entries change`() {
     val sut = fixture.getSut()
 
     sut.onBackStackChanged(listOf(HomeScreen(), ProfileScreen("123")))
     sut.onBackStackChanged(listOf(HomeScreen(), SettingsScreen("privacy"), ProfileScreen("123")))
 
-    verify(fixture.scopes, times(1)).addBreadcrumb(any<Breadcrumb>(), any())
+    verify(fixture.scopes, times(2)).addBreadcrumb(any<Breadcrumb>(), any())
   }
 
   @Test

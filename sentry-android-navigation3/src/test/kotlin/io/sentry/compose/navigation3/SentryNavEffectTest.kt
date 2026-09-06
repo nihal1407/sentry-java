@@ -130,6 +130,14 @@ class SentryNavEffectTest {
 
   private fun createRealScopeTestScopes(): RealScopeTestScopes = RealScopeTestScopes()
 
+  private class ExplodingKey {
+    override fun equals(other: Any?): Boolean = error("equals boom")
+
+    override fun hashCode(): Int = error("hashCode boom")
+
+    override fun toString(): String = error("toString boom")
+  }
+
   @Test
   fun `initial backstack fires breadcrumb and transaction`() {
     val fixture = createScopes()
@@ -170,7 +178,7 @@ class SentryNavEffectTest {
   }
 
   @Test
-  fun `nav display initial destination body sees navigation transaction`() {
+  fun `nav display initial destination body does not see navigation transaction during composition`() {
     val fixture: RealScopeTestScopes = createRealScopeTestScopes()
     val backStack: SnapshotStateList<Any> = mutableStateListOf(HomeScreen())
     val observedSpans: MutableList<ISpan?> = mutableListOf()
@@ -186,11 +194,11 @@ class SentryNavEffectTest {
     }
     composeRule.waitForIdle()
 
-    assertEquals("/HomeScreen", (observedSpans.last() as SentryTracer).name)
+    assertThat(observedSpans.last()).isNull()
   }
 
   @Test
-  fun `synchronous content after SentryNavEffect after push sees navigation transaction`() {
+  fun `synchronous content after push sees previous navigation transaction during composition`() {
     val fixture: RealScopeTestScopes = createRealScopeTestScopes()
     val backStack: SnapshotStateList<Any> = mutableStateListOf(HomeScreen())
     val observedSpans: MutableList<ISpan?> = mutableListOf()
@@ -208,7 +216,7 @@ class SentryNavEffectTest {
     backStack.add(ProfileScreen("123"))
     composeRule.waitForIdle()
 
-    assertEquals("/ProfileScreen", (observedSpans.single() as SentryTracer).name)
+    assertEquals("/HomeScreen", (observedSpans.single() as SentryTracer).name)
   }
 
   @Test
@@ -270,6 +278,7 @@ class SentryNavEffectTest {
   }
 
   @OptIn(ExperimentalComposeUiApi::class)
+  @Suppress("LongMethod")
   @Test
   @GraphicsMode(GraphicsMode.Mode.NATIVE)
   fun `SentryTraced spans after push attach to navigation transaction`() {
@@ -498,7 +507,26 @@ class SentryNavEffectTest {
   }
 
   @Test
-  fun `state read by stable extractor refreshes current screen`() {
+  fun `unrelated recomposition does not compare backstack entries`() {
+    val fixture = createScopes()
+    val backStack = mutableStateListOf<Any>(ExplodingKey())
+    val recomposeTrigger = mutableStateOf(0)
+
+    composeRule.setContent {
+      @Suppress("UNUSED_EXPRESSION") recomposeTrigger.value
+
+      SentryNavEffect(backStack = backStack, scopes = fixture.scopes)
+    }
+    composeRule.waitForIdle()
+
+    recomposeTrigger.value = 1
+    composeRule.waitForIdle()
+
+    verify(fixture.scopes, times(1)).addBreadcrumb(any<Breadcrumb>(), any())
+  }
+
+  @Test
+  fun `state read by stable extractor does not refresh current screen without a new extractor`() {
     val fixture = createScopes()
     val backStack = mutableStateListOf<Any>(HomeScreen())
     val routeName = mutableStateOf("home")
@@ -520,9 +548,9 @@ class SentryNavEffectTest {
     routeName.value = "renamed-home"
     composeRule.waitForIdle()
 
-    assertThat(nameExtractorCalls).isEqualTo(2)
+    assertThat(nameExtractorCalls).isEqualTo(1)
     verify(fixture.scope).screen = "/home"
-    verify(fixture.scope).screen = "/renamed-home"
+    verify(fixture.scope, never()).screen = "/renamed-home"
     verify(fixture.scopes, times(1)).addBreadcrumb(any<Breadcrumb>(), any())
     verify(fixture.scopes, times(1))
       .startTransaction(any<TransactionContext>(), any<TransactionOptions>())
@@ -546,18 +574,17 @@ class SentryNavEffectTest {
     }
     composeRule.waitForIdle()
 
-    val breadcrumbCaptor = argumentCaptor<Breadcrumb>()
-    verify(fixture.scopes).addBreadcrumb(breadcrumbCaptor.capture(), any())
-    assertEquals("/HomeScreen", breadcrumbCaptor.lastValue.data["to"])
-
     useCustomName.value = true
     composeRule.waitForIdle()
 
     backStack.add(ProfileScreen("123"))
     composeRule.waitForIdle()
 
-    verify(fixture.scopes, times(2)).addBreadcrumb(breadcrumbCaptor.capture(), any())
-    assertEquals("/custom", breadcrumbCaptor.lastValue.data["to"])
+    val breadcrumbCaptor = argumentCaptor<Breadcrumb>()
+    verify(fixture.scopes, times(3)).addBreadcrumb(breadcrumbCaptor.capture(), any())
+    assertThat(breadcrumbCaptor.allValues.map { it.data["to"] })
+      .containsExactly("/HomeScreen", "/custom", "/custom")
+      .inOrder()
   }
 
   @Test

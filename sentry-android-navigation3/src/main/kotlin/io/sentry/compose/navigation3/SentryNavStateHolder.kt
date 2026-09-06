@@ -23,25 +23,36 @@ import java.util.IdentityHashMap
 /*
  * TODO ADAM: NEXT STEPS
  *
- * - Apply Compose performance rendering tracing to Nav2Activity and Nav3Activity. (We want to ensure those traces show up in the nav transactions.)
+ * - Apply Compose performance rendering tracing to Nav2Activity and Nav3Activity. (We want to
+ *   ensure those traces show up in the nav transactions.)
  *
- * - Make sure our composition ordering updates work correctly when creating a nav transaction. (Eg, if we navigate to a screen that uses a LaunchedEffect to do initial work, we want to make sure that work is tracked under the nav transaction.)
+ * - Make sure our composition ordering updates work correctly when creating a nav transaction. (Eg,
+ *   if we navigate to a screen that uses a LaunchedEffect to do initial work, we want to make sure
+ *   that work is tracked under the nav transaction.)
  *
- * --- Determine whether we want to use the snapshot-based approach or the previous DisposableEffect approach. (See discussion of downsides of snapshot approach in ~/Desktop/nav3-observing-sync-work-in-destination-composable.txt)
+ * --- Determine whether we want to use the snapshot-based approach or the previous DisposableEffect
+ *     approach. (See discussion of downsides of snapshot approach in
+ *     ~/Desktop/nav3-observing-sync-work-in-destination-composable.txt)
  *
- * --- Any performance concerns now that we're no longer using a LaunchedEffect to call onBackstackChanged()?
+ * --- Any performance concerns now that we're no longer using a LaunchedEffect to call
+ *     onBackstackChanged()?
  *
- * --- Explore i) ordering SentryNavEffect vs NavDisplay, ii) SentryNavDisplay, or iii) rememberSentryNav3BackStack() (see "SentryNavEffect Ordering Relative to NavDisplay" section in ~/Desktop/nav2-vs-nav3-transaction-policies.txt).
+ * --- Explore i) ordering SentryNavEffect vs NavDisplay, ii) SentryNavDisplay, or iii)
+ *     rememberSentryNav3BackStack() (see "SentryNavEffect Ordering Relative to NavDisplay" section
+ *     in ~/Desktop/nav2-vs-nav3-transaction-policies.txt).
  *
- * ------ Note that remember*() and side effects have different semantics in Compose / are executed at different points in the composition lifecycle.
+ * ------ Note that remember*() and side effects have different semantics in Compose / are executed
+ *        at different points in the composition lifecycle.
  *
  * --- Add simulated work in the destination that involves LaunchedEffect, DisposableEffect, etc.
  *
  * --- Have LLM check via Sample App.
  *
- * --- Decide whether we want to introduce SentryNavDecorator in phase 1 to ensure ordering updates work correctly.
+ * --- Decide whether we want to introduce SentryNavDecorator in phase 1 to ensure ordering updates
+ *     work correctly.
  *
- * - Final API decision: SentryNavEffect vs (a virtually identical) rememberSentry[Nav3]BackStack() vs SentryNavDisplay
+ * - Final API decision: SentryNavEffect vs (a virtually identical)
+ *   rememberSentry[Nav3]BackStack() vs SentryNavDisplay
  *
  * - Make sure sample app contains all required nav3 recipes.
  *
@@ -51,7 +62,8 @@ import java.util.IdentityHashMap
  *
  * - Use kotlinx serialization to produce routes in sample app.
  *
- * - Determine whether we want to emit any additional Sentry state when the backstack is updated (eg, SceneStrategy, DialogStrategy, etc.).
+ * - Determine whether we want to emit any additional Sentry state when the backstack is updated
+ *   (eg, SceneStrategy, DialogStrategy, etc.).
  *
  * - Harmonize Nav2 and Nav3 sample apps.
  *
@@ -97,9 +109,8 @@ internal class SentryNavStateHolder<T : Any> internal constructor(private val sc
   /**
    * Updates recorded Sentry data based on the provided [backStack].
    *
-   * This method is idempotent and is safe to call on every recomposition. Extractors are the source
-   * of truth for route names and arguments, so they must run whenever this method runs; extractor
-   * output can change even when the backstack, extractor instances, and options are unchanged.
+   * This method records one navigation update each time it is called. Callers should invoke it only
+   * when the observed back stack or related navigation configuration changes.
    */
   @Suppress("LongMethod")
   internal fun onBackStackChanged(
@@ -123,9 +134,9 @@ internal class SentryNavStateHolder<T : Any> internal constructor(private val sc
       if (currentEntry == null) {
         scopes.configureScope { scope ->
           if (options.captureBackStack) {
-            scope.updateNavigationContextIfChanged(emptyList())
+            scope.updateNavigationContext(emptyList())
           } else {
-            scope.clearNavigationContextIfNeeded()
+            scope.clearNavigationContext()
           }
 
           scope.stopNav3Transaction()
@@ -141,8 +152,6 @@ internal class SentryNavStateHolder<T : Any> internal constructor(private val sc
       val previousDestination = lastDestination
       val argumentSanitizationState = ArgumentSanitizationState()
       val currentRouteName = resolveRouteName(currentEntry, nameExtractor)
-      val destinationChanged = previousDestination?.entry != currentEntry
-      val screenChanged = previousDestination?.routeName != currentRouteName
 
       val currentDestination =
         Destination(
@@ -165,9 +174,9 @@ internal class SentryNavStateHolder<T : Any> internal constructor(private val sc
 
       scopes.configureScope { scope ->
         if (options.captureBackStack) {
-          scope.updateNavigationContextIfChanged(backStackContext)
+          scope.updateNavigationContext(backStackContext)
         } else {
-          scope.clearNavigationContextIfNeeded()
+          scope.clearNavigationContext()
         }
 
         if (!areNavigationTransactionsEnabled) {
@@ -175,14 +184,7 @@ internal class SentryNavStateHolder<T : Any> internal constructor(private val sc
         }
 
         if (scopes.options.isEnableScreenTracking) {
-          if (destinationChanged || screenChanged) {
-            scope.trackRouteAsScreen(currentDestination.routeName)
-          }
-        }
-
-        if (!destinationChanged) {
-          lastDestination = currentDestination
-          return@configureScope
+          scope.trackRouteAsScreen(currentDestination.routeName)
         }
 
         if (options.enableNavigationBreadcrumbs) {
@@ -250,11 +252,7 @@ internal class SentryNavStateHolder<T : Any> internal constructor(private val sc
     }
   }
 
-  private fun IScope.updateNavigationContextIfChanged(backStackContext: List<Map<String, Any?>>) {
-    if (lastBackStackContext == backStackContext) {
-      return
-    }
-
+  private fun IScope.updateNavigationContext(backStackContext: List<Map<String, Any?>>) {
     if (backStackContext.isEmpty()) {
       this.removeContexts(NAVIGATION_CONTEXT_KEY)
     } else {
@@ -263,11 +261,9 @@ internal class SentryNavStateHolder<T : Any> internal constructor(private val sc
     lastBackStackContext = backStackContext
   }
 
-  private fun IScope.clearNavigationContextIfNeeded() {
-    if (lastBackStackContext != null) {
-      this.removeContexts(NAVIGATION_CONTEXT_KEY)
-      lastBackStackContext = null
-    }
+  private fun IScope.clearNavigationContext() {
+    this.removeContexts(NAVIGATION_CONTEXT_KEY)
+    lastBackStackContext = null
   }
 
   private fun IScope.rotatePropagationContext() {

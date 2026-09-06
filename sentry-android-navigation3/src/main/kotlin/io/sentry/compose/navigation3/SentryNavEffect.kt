@@ -33,8 +33,8 @@ import org.jetbrains.annotations.ApiStatus
  *  }
  * ```
  *
- * Under the hood it reads your [backStack] during composition and converts it into Sentry events
- * via the provided [scopes] instance.
+ * Under the hood it observes your [backStack] and converts it into Sentry events via the provided
+ * [scopes] instance.
  *
  * **Gotchas**
  *
@@ -45,18 +45,13 @@ import org.jetbrains.annotations.ApiStatus
  *
  * *Composition lifecycle and ordering*: Call `SentryNavEffect` from a composable that stays in the
  * composition tree for the full navigation session, at the same level as `NavDisplay` rather than
- * inside a single destination. It should be called before `NavDisplay`. This integration
- * intentionally processes the backstack during composition because `NavDisplay` immediately
- * composes the destination, where instrumentation such as `SentryTraced` creates child spans. The
- * route navigation transaction must already be active so that work is attached to the correct
- * transaction. When the effect leaves the tree, navigation observation stops and the active
- * navigation transaction is finished.
+ * inside a single destination. It should be called before `NavDisplay`. When the effect leaves the
+ * tree, navigation observation stops and the active navigation transaction is finished.
  *
  * *Extractor stability*: Changing [nameExtractor] or [argumentsExtractor] instances causes this
- * integration to reprocess the backstack. Remember expensive extractors that capture changing
- * configuration so unrelated recompositions can skip this work. Extractors that read Compose
- * snapshot state also subscribe this effect to that state; when it changes, Sentry reprocesses the
- * captured backstack because extractor output may have changed even if the route entries did not.
+ * integration to reprocess the backstack. Remember expensive extractors whose output does not need
+ * to change every recomposition. Extractors that depend on Compose snapshot state should capture
+ * that state outside the extractor and pass a new extractor instance when it changes.
  *
  * // TODO ADAM: Re dialogs: Nav2 generates breadcrumbs, transactions, etc. for dialogs if they're
  * // routed through the NavController. But that only tends to happen when using Compose. //
@@ -82,11 +77,11 @@ import org.jetbrains.annotations.ApiStatus
  *   provided, no arguments are attached. Values should be primitives (`String`, `Number`,
  *   `Boolean`), `null`, or nested `Map`/`Collection` thereof. Non-primitive values are coerced to
  *   their `toString()` representation with a warning logged. Extraction and recursive sanitization
- *   run synchronously during composition for every captured entry, so return only the arguments
- *   needed for diagnostics and avoid large or deeply nested structures. Cyclic structures,
- *   structures deeper than 20 nesting levels, and captured back-stack updates containing more than
- *   1,000 total argument values skip the offending arguments. Once the total value budget is
- *   exhausted, older captured entries keep their route names but omit arguments.
+ *   run synchronously after the changed composition is applied, so return only the arguments needed
+ *   for diagnostics and avoid large or deeply nested structures. Cyclic structures, structures
+ *   deeper than 20 nesting levels, and captured back-stack updates containing more than 1,000 total
+ *   argument values skip the offending arguments. Once the total value budget is exhausted, older
+ *   captured entries keep their route names but omit arguments.
  */
 @Suppress("LongParameterList", "FunctionNaming")
 @ApiStatus.Experimental
@@ -101,22 +96,49 @@ public fun <T : Any> SentryNavEffect(
   argumentsExtractor: ((T) -> Map<String, Any?>)? = null,
 ) {
   val navStateHolder = remember(scopes) { SentryNavStateHolder<T>(scopes = scopes) }
+  val backStackSnapshot = backStack.toList()
+  val backStackKey = BackStackKey(backStackSnapshot)
 
-  // This intentionally updates Sentry during composition rather than from a deferred Compose
-  // effect. NavDisplay composes destination bodies immediately after this call, and SentryTraced
-  // creates child spans from those bodies. Deferring this update would attach those spans to the
-  // previous transaction, or leave them without a parent transaction.
-  navStateHolder.onBackStackChanged(
-    backStack = backStack,
-    options = options,
-    nameExtractor = nameExtractor,
-    argumentsExtractor = argumentsExtractor,
-  )
+  DisposableEffect(navStateHolder, backStackKey, options, nameExtractor, argumentsExtractor) {
+    navStateHolder.onBackStackChanged(
+      backStack = backStackSnapshot,
+      options = options,
+      nameExtractor = nameExtractor,
+      argumentsExtractor = argumentsExtractor,
+    )
+
+    onDispose {}
+  }
 
   DisposableEffect(navStateHolder) {
     onDispose {
       navStateHolder.cleanup()
     }
+  }
+}
+
+private class BackStackKey<T : Any>(private val backStack: List<T>) {
+
+  override fun equals(other: Any?): Boolean {
+    if (this === other) {
+      return true
+    }
+    if (other !is BackStackKey<*>) {
+      return false
+    }
+    if (backStack.size != other.backStack.size) {
+      return false
+    }
+
+    return backStack.indices.all { index -> backStack[index] === other.backStack[index] }
+  }
+
+  override fun hashCode(): Int {
+    var result = backStack.size
+    for (entry in backStack) {
+      result = 31 * result + System.identityHashCode(entry)
+    }
+    return result
   }
 }
 
