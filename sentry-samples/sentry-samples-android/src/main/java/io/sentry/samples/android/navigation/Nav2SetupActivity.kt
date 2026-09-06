@@ -61,14 +61,16 @@ import kotlinx.coroutines.launch
  */
 class Nav2SetupActivity : AppCompatActivity() {
 
-  private var configuration by mutableStateOf(Nav2SampleConfig())
+  private var configuration by mutableStateOf(NavigationSampleConfig())
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     configuration = savedInstanceState?.nav2SampleConfiguration() ?: configuration
     setContent {
       MaterialTheme {
-        Nav2SetupScreen(
+        NavigationSetupScreen(
+          navName = "Nav2",
+          navVersion = "2",
           configuration = configuration,
           onConfigurationChanged = { updatedConfiguration ->
             configuration = updatedConfiguration
@@ -90,9 +92,12 @@ class Nav2SetupActivity : AppCompatActivity() {
 }
 
 @Composable
-private fun Nav2SetupScreen(
-  configuration: Nav2SampleConfig,
-  onConfigurationChanged: (Nav2SampleConfig) -> Unit,
+internal fun NavigationSetupScreen(
+  navName: String,
+  navVersion: String,
+  configuration: NavigationSampleConfig,
+  showBackStackControls: Boolean = false,
+  onConfigurationChanged: (NavigationSampleConfig) -> Unit,
   onLaunch: () -> Unit,
 ) {
   Column(
@@ -105,53 +110,68 @@ private fun Nav2SetupScreen(
     verticalArrangement = Arrangement.spacedBy(16.dp),
   ) {
     Text(
-      text = "Navigation 2 Setup",
+      text = "Navigation $navVersion Setup",
       style = MaterialTheme.typography.headlineMedium,
       fontWeight = FontWeight.Bold,
       color = MaterialTheme.colorScheme.onBackground,
     )
     Text(
       text =
-        "Choose which auto-instrumentation features should be active before the Nav2 sample launches.",
+        "Choose which auto-instrumentation features should be active before the $navName sample launches.",
       style = MaterialTheme.typography.bodyMedium,
     )
-    Nav2SetupSection(title = "Navigation") {
-      Nav2SetupCheckboxRow(
+    NavigationSetupSection(title = "Navigation") {
+      NavigationSetupCheckboxRow(
         label = "Navigation transactions",
         checked = configuration.enableNavigationTransactions,
       ) {
         onConfigurationChanged(configuration.copy(enableNavigationTransactions = it))
       }
-      Nav2SetupCheckboxRow(
+      NavigationSetupCheckboxRow(
         label = "Navigation breadcrumbs",
         checked = configuration.enableNavigationBreadcrumbs,
       ) {
         onConfigurationChanged(configuration.copy(enableNavigationBreadcrumbs = it))
       }
-      Nav2SetupCheckboxRow(
+      NavigationSetupCheckboxRow(
         label = "Screen tracking",
         checked = configuration.enableScreenTracking,
       ) {
         onConfigurationChanged(configuration.copy(enableScreenTracking = it))
       }
+      if (showBackStackControls) {
+        NavigationSetupCheckboxRow(
+          label = "Capture back stack",
+          checked = configuration.captureBackStack,
+        ) {
+          onConfigurationChanged(configuration.copy(captureBackStack = it))
+        }
+        NavigationSetupCounterRow(
+          label = "Max captured back stack entries",
+          value = configuration.maxCapturedBackStackEntries,
+          enabled = configuration.captureBackStack,
+        ) {
+          onConfigurationChanged(configuration.copy(maxCapturedBackStackEntries = it))
+        }
+      }
     }
-    Nav2SetupSection(title = "Other auto-transactions") {
-      Nav2SetupCheckboxRow(
+    NavigationSetupSection(title = "Other auto-transactions") {
+      NavigationSetupCheckboxRow(
         label = "Activity ui.load transaction",
         checked = configuration.enableActivityUiLoadTransaction,
         helpText = ACTIVITY_UI_LOAD_HELP_TEXT,
       ) {
         onConfigurationChanged(configuration.copy(enableActivityUiLoadTransaction = it))
       }
-      Nav2SetupCheckboxRow(
+      NavigationSetupCheckboxRow(
         label = "User interaction transactions",
         checked = configuration.enableUserInteractionTransactions,
       ) {
         onConfigurationChanged(configuration.copy(enableUserInteractionTransactions = it))
       }
     }
-    Nav2SetupSection(title = "Other breadcrumbs") {
-      Nav2SetupCheckboxRow(
+    NavigationSetupSection(title = "Other breadcrumbs") {
+      NavigationSetupCheckboxRow(
         label = "User interaction breadcrumbs",
         checked = configuration.enableUserInteractionBreadcrumbs,
       ) {
@@ -160,7 +180,7 @@ private fun Nav2SetupScreen(
     }
     Button(onClick = onLaunch, modifier = Modifier.fillMaxWidth()) {
       Text(
-        "Launch Nav2 Sample",
+        "Launch $navName Sample",
         fontSize = 18.sp,
       )
     }
@@ -168,7 +188,7 @@ private fun Nav2SetupScreen(
 }
 
 @Composable
-private fun Nav2SetupSection(title: String, content: @Composable () -> Unit) {
+private fun NavigationSetupSection(title: String, content: @Composable () -> Unit) {
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(
       text = title,
@@ -188,7 +208,7 @@ private fun Nav2SetupSection(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Nav2SetupCheckboxRow(
+private fun NavigationSetupCheckboxRow(
   label: String,
   checked: Boolean,
   helpText: String? = null,
@@ -231,15 +251,55 @@ private fun Nav2SetupCheckboxRow(
     ) {
       Text(text = label, style = MaterialTheme.typography.titleMedium)
       if (helpText != null) {
-        Nav2SetupHelpTooltip(helpText)
+        NavigationSetupHelpTooltip(helpText)
       }
+    }
+  }
+}
+
+@Composable
+private fun NavigationSetupCounterRow(
+  label: String,
+  value: Int,
+  enabled: Boolean,
+  onValueChange: (Int) -> Unit,
+) {
+  Row(
+    modifier =
+      Modifier.fillMaxWidth()
+        .defaultMinSize(minHeight = 52.dp)
+        .padding(horizontal = 12.dp, vertical = 6.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    Text(text = label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+    Button(
+      enabled = enabled && value > 1,
+      onClick = { onValueChange((value - 1).coerceAtLeast(1)) },
+      modifier = Modifier.size(44.dp),
+    ) {
+      Text("-")
+    }
+    Text(
+      text = value.toString(),
+      style = MaterialTheme.typography.titleMedium,
+      fontWeight = FontWeight.Bold,
+      modifier = Modifier.size(44.dp).padding(top = 10.dp),
+      textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+    )
+    Button(
+      enabled = enabled,
+      onClick = { onValueChange(value + 1) },
+      modifier = Modifier.size(44.dp),
+    ) {
+      Text("+")
     }
   }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Nav2SetupHelpTooltip(text: String) {
+private fun NavigationSetupHelpTooltip(text: String) {
   val tooltipState = rememberTooltipState(isPersistent = true)
   val scope = rememberCoroutineScope()
 

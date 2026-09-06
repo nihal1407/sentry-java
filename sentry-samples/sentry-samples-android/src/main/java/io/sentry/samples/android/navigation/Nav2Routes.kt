@@ -5,6 +5,7 @@ import android.view.ViewGroup
 import androidx.core.os.bundleOf
 import androidx.navigation.NavDestination
 import io.sentry.Sentry
+import io.sentry.SpanStatus
 import io.sentry.protocol.SentryTransaction
 import io.sentry.samples.android.R
 import kotlin.coroutines.resume
@@ -345,20 +346,40 @@ internal fun recordManualChildSpan(routeName: String) {
 }
 
 internal fun tagCurrentNav2Scenario(scenario: Nav2Scenario) {
-  Sentry.getSpan()?.setTag(NAV2_SCENARIO_TAG, scenario.label)
+  Sentry.getSpan()?.let { span ->
+    span.setTag(NAVIGATION_SAMPLE_SCENARIO_TAG, scenario.label)
+    span.setTag(NAV2_SCENARIO_TAG, scenario.label)
+  }
 }
 
-internal fun SentryTransaction.nav2ScenarioLabel(): String =
-  getTag(NAV2_SCENARIO_TAG) ?: UNKNOWN_NAV2_SCENARIO_LABEL
+internal fun SentryTransaction.nav2ScenarioLabel(): String = navigationSampleScenarioLabel()
 
-internal suspend fun recordSimulatedBackgroundSpan(routeName: String) {
+internal fun tagCurrentNavigationSampleScenario(scenarioLabel: String) {
+  Sentry.getSpan()?.setTag(NAVIGATION_SAMPLE_SCENARIO_TAG, scenarioLabel)
+}
+
+internal fun SentryTransaction.navigationSampleScenarioLabel(): String =
+  getTag(NAVIGATION_SAMPLE_SCENARIO_TAG) ?: getTag(NAV2_SCENARIO_TAG) ?: UNKNOWN_NAV2_SCENARIO_LABEL
+
+internal fun cancelCurrentActivityUiLoadTransaction() {
+  Sentry.configureScope { scope ->
+    scope.withTransaction { transaction ->
+      if (transaction?.operation == ACTIVITY_UI_LOAD_OP) {
+        transaction.forceFinish(SpanStatus.CANCELLED, false, null)
+        scope.clearTransaction()
+      }
+    }
+  }
+}
+
+internal suspend fun recordSimulatedBackgroundSpan(routeName: String, navName: String = "Nav2") {
   val parentSpan = Sentry.getSpan()
   suspendCancellableCoroutine { continuation ->
     val worker = Thread {
       val span =
         parentSpan?.startChild(
           "test.navigation.background_work",
-          "Nav2 /$routeName background work",
+          "$navName /$routeName background work",
         )
       span?.setData("sample.background_work", true)
       try {
@@ -394,7 +415,9 @@ internal fun <T> MutableList<T>.popTrackedBackStack(popBackStack: () -> Boolean)
 internal const val SENTRY_FLUSH_TIMEOUT_MILLIS = 5000L
 internal const val BACKGROUND_WORK_MILLIS = 1000L
 internal const val NAV2_SCENARIO_TAG = "sample_nav2_scenario"
+internal const val NAVIGATION_SAMPLE_SCENARIO_TAG = "sample_navigation_scenario"
 internal const val UNKNOWN_NAV2_SCENARIO_LABEL = "Unknown"
+internal const val ACTIVITY_UI_LOAD_OP = "ui.load"
 
 internal const val MATCH_PARENT = ViewGroup.LayoutParams.MATCH_PARENT
 internal const val WRAP_CONTENT = ViewGroup.LayoutParams.WRAP_CONTENT

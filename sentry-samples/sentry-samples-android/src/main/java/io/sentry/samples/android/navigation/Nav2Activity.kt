@@ -32,7 +32,6 @@ import androidx.navigation.NavDestination
 import androidx.navigation.NavOptions
 import androidx.navigation.fragment.NavHostFragment
 import io.sentry.Sentry
-import io.sentry.SpanStatus
 import io.sentry.android.navigation.SentryNavigationListener
 import io.sentry.samples.android.GithubAPI
 import io.sentry.samples.android.R
@@ -81,7 +80,8 @@ class Nav2Activity : AppCompatActivity() {
 
   // Transaction history bottom sheet
   private var isTransactionHistoryActive = false
-  private val transactionHistory = Nav2TransactionHistory(isActive = { isTransactionHistoryActive })
+  private val transactionHistory =
+    NavigationTransactionHistory(isActive = { isTransactionHistoryActive })
   private val showTransactionHistorySheet = mutableStateOf(false)
   private var showActivityUiLoadTransactionDelayMessage = false
   private lateinit var transactionHistoryOverlay: ComposeView
@@ -290,7 +290,8 @@ class Nav2Activity : AppCompatActivity() {
       setContent {
         MaterialTheme {
           if (showTransactionHistorySheet.value) {
-            Nav2TransactionHistorySheet(
+            NavigationTransactionHistorySheet(
+              sampleName = "Nav2",
               transactions = transactionHistory.transactions,
               showActivityUiLoadTransactionDelayMessage = showActivityUiLoadTransactionDelayMessage,
               onDismissRequest = { hideTransactionHistorySheet() },
@@ -526,14 +527,7 @@ class Nav2Activity : AppCompatActivity() {
   }
 
   internal fun cancelCurrentUiLoadTransaction() {
-    Sentry.configureScope { scope ->
-      scope.withTransaction { transaction ->
-        if (transaction?.operation == ACTIVITY_UI_LOAD_OP) {
-          transaction.forceFinish(SpanStatus.CANCELLED, false, null)
-          scope.clearTransaction()
-        }
-      }
-    }
+    cancelCurrentActivityUiLoadTransaction()
   }
 
   internal fun tagCurrentScenarioOnTransaction() {
@@ -636,5 +630,4 @@ class Nav2Activity : AppCompatActivity() {
 }
 
 private const val BOTTOM_SHEET_HIDE_DELAY_MILLIS = 350L
-private const val ACTIVITY_UI_LOAD_OP = "ui.load"
 private const val TAG = "Nav2Activity"
