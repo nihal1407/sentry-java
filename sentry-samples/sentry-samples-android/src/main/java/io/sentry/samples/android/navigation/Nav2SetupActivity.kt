@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -29,6 +31,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -50,6 +53,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -264,6 +268,7 @@ private fun NavigationSetupCounterRow(
   enabled: Boolean,
   onValueChange: (Int) -> Unit,
 ) {
+  val sentryPurple = Color(0xFF6C55B2)
   Row(
     modifier =
       Modifier.fillMaxWidth()
@@ -273,26 +278,45 @@ private fun NavigationSetupCounterRow(
     horizontalArrangement = Arrangement.spacedBy(12.dp),
   ) {
     Text(text = label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-    Button(
+    NavigationSetupCounterButton(
+      label = "-",
       enabled = enabled && value > 1,
       onClick = { onValueChange((value - 1).coerceAtLeast(1)) },
-      modifier = Modifier.size(44.dp),
-    ) {
-      Text("-")
-    }
-    Text(
-      text = value.toString(),
-      style = MaterialTheme.typography.titleMedium,
-      fontWeight = FontWeight.Bold,
-      modifier = Modifier.size(44.dp).padding(top = 10.dp),
-      textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+      color = sentryPurple,
     )
-    Button(
+    Box(modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+      Text(
+        text = value.toString(),
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        textAlign = TextAlign.Center,
+      )
+    }
+    NavigationSetupCounterButton(
+      label = "+",
       enabled = enabled,
       onClick = { onValueChange(value + 1) },
-      modifier = Modifier.size(44.dp),
-    ) {
-      Text("+")
+      color = sentryPurple,
+    )
+  }
+}
+
+@Composable
+private fun NavigationSetupCounterButton(
+  label: String,
+  enabled: Boolean,
+  color: Color,
+  onClick: () -> Unit,
+) {
+  Surface(
+    shape = CircleShape,
+    color = if (enabled) color else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+    contentColor =
+      if (enabled) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+    modifier = Modifier.size(56.dp).clickable(enabled = enabled, onClick = onClick),
+  ) {
+    Box(contentAlignment = Alignment.Center) {
+      Text(label, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
     }
   }
 }

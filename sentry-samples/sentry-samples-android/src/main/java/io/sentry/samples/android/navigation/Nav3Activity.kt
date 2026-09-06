@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,10 +20,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,16 +35,15 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -63,7 +65,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -75,6 +79,7 @@ import io.sentry.compose.SentryTraced
 import io.sentry.compose.navigation3.SentryNavEffect
 import io.sentry.compose.navigation3.SentryNavOptions
 import io.sentry.samples.android.GithubAPI
+import io.sentry.samples.android.R
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -100,6 +105,10 @@ class Nav3Activity : ComponentActivity() {
   private val transactionHistory =
     NavigationTransactionHistory(isActive = { isTransactionHistoryActive })
   private var showActivityUiLoadTransactionDelayMessage = false
+  private var routeWorkOptions by
+    mutableStateOf(setOf(RouteWorkOption.HTTP_REQUEST, RouteWorkOption.MANUAL_CHILD_SPAN))
+  private var showTransactionHistorySheet by mutableStateOf(false)
+  private var showCrashConfirmation by mutableStateOf(false)
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -129,6 +138,14 @@ class Nav3Activity : ComponentActivity() {
           configuration = configuration,
           transactions = transactionHistory.transactions,
           showActivityUiLoadTransactionDelayMessage = showActivityUiLoadTransactionDelayMessage,
+          routeWorkOptions = routeWorkOptions,
+          showTransactionHistorySheet = showTransactionHistorySheet,
+          showCrashConfirmation = showCrashConfirmation,
+          onShowTransactionHistorySheet = { showTransactionHistorySheet = true },
+          onDismissTransactionHistorySheet = { showTransactionHistorySheet = false },
+          onShowRouteWorkSettings = { showRouteWorkSettings() },
+          onShowCrashConfirmation = { showCrashConfirmation = true },
+          onDismissCrashConfirmation = { showCrashConfirmation = false },
           onOpenTransaction = { url -> openTransactionInSentry(url) },
           onDumpTransactionUrl = { url -> dumpTransactionUrl(url) },
           onCopyTransactionUrl = { url -> copyTransactionUrl(url) },
@@ -188,6 +205,12 @@ class Nav3Activity : ComponentActivity() {
     clipboard.setPrimaryClip(ClipData.newPlainText("Sentry transaction URL", url))
     Toast.makeText(this, "Copied transaction URL to clipboard.", Toast.LENGTH_SHORT).show()
   }
+
+  private fun showRouteWorkSettings() {
+    showRouteWorkDialog(this, routeWorkOptions) { selectedOptions ->
+      routeWorkOptions = selectedOptions
+    }
+  }
 }
 
 @SuppressLint("ContextCastToActivity")
@@ -201,6 +224,14 @@ private fun Nav3SampleApp(
   configuration: NavigationSampleConfig,
   transactions: List<NavigationTransactionTrace>,
   showActivityUiLoadTransactionDelayMessage: Boolean,
+  routeWorkOptions: Set<RouteWorkOption>,
+  showTransactionHistorySheet: Boolean,
+  showCrashConfirmation: Boolean,
+  onShowTransactionHistorySheet: () -> Unit,
+  onDismissTransactionHistorySheet: () -> Unit,
+  onShowRouteWorkSettings: () -> Unit,
+  onShowCrashConfirmation: () -> Unit,
+  onDismissCrashConfirmation: () -> Unit,
   onOpenTransaction: (String) -> Unit,
   onDumpTransactionUrl: (String) -> Unit,
   onCopyTransactionUrl: (String) -> Unit,
@@ -227,12 +258,7 @@ private fun Nav3SampleApp(
   var maxCapturedBackStackEntries by remember {
     mutableIntStateOf(configuration.maxCapturedBackStackEntries)
   }
-  var routeWorkOptions by remember {
-    mutableStateOf(setOf(RouteWorkOption.HTTP_REQUEST, RouteWorkOption.MANUAL_CHILD_SPAN))
-  }
   var selectedScenario by rememberSaveable { mutableStateOf(initialScenario) }
-  var showTransactionHistorySheet by remember { mutableStateOf(false) }
-  var showCrashConfirmation by remember { mutableStateOf(false) }
   val performanceScope = rememberCoroutineScope()
 
   if (selectedScenario == Nav3Scenario.PERFORMANCE) {
@@ -389,19 +415,14 @@ private fun Nav3SampleApp(
   }
 
   Scaffold(
+    modifier = Modifier.fillMaxSize().safeDrawingPadding(),
     topBar = {
       Nav3TopBar(
         backStack = backStack,
         selectedScenario = selectedScenario,
         maxCapturedBackStackEntries = maxCapturedBackStackEntries,
-        onTransactionHistoryClick = { showTransactionHistorySheet = true },
-        onRouteWorkSettingsClick = {
-          activity?.let { currentActivity ->
-            showRouteWorkDialog(currentActivity, routeWorkOptions) { selectedOptions ->
-              routeWorkOptions = selectedOptions
-            }
-          }
-        },
+        onTransactionHistoryClick = onShowTransactionHistorySheet,
+        onRouteWorkSettingsClick = onShowRouteWorkSettings,
         onScenarioSelected = { scenario ->
           if (scenario != Nav3Scenario.PERFORMANCE && performanceState.benchmarkRunning) {
             performanceState.cancelBenchmark()
@@ -419,7 +440,7 @@ private fun Nav3SampleApp(
     bottomBar = {
       SentryControls(
         onCaptureException = { captureSampleException("Nav3") },
-        onCrashApp = { showCrashConfirmation = true },
+        onCrashApp = onShowCrashConfirmation,
       )
     },
   ) { innerPadding ->
@@ -497,7 +518,7 @@ private fun Nav3SampleApp(
                     route = route,
                     backStack = backStack,
                     onCaptureException = { captureSampleException("Nav3") },
-                    onCrashApp = { showCrashConfirmation = true },
+                    onCrashApp = onShowCrashConfirmation,
                   )
                 }
               }
@@ -509,7 +530,7 @@ private fun Nav3SampleApp(
                     route = route,
                     backStack = backStack,
                     onCaptureException = { captureSampleException("Nav3") },
-                    onCrashApp = { showCrashConfirmation = true },
+                    onCrashApp = onShowCrashConfirmation,
                   )
                 }
               }
@@ -552,7 +573,7 @@ private fun Nav3SampleApp(
       sampleName = "Nav3",
       transactions = transactions,
       showActivityUiLoadTransactionDelayMessage = showActivityUiLoadTransactionDelayMessage,
-      onDismissRequest = { showTransactionHistorySheet = false },
+      onDismissRequest = onDismissTransactionHistorySheet,
       onOpenTransaction = onOpenTransaction,
       onDumpTransactionUrl = onDumpTransactionUrl,
       onCopyTransactionUrl = onCopyTransactionUrl,
@@ -561,16 +582,16 @@ private fun Nav3SampleApp(
 
   if (showCrashConfirmation) {
     AlertDialog(
-      onDismissRequest = { showCrashConfirmation = false },
+      onDismissRequest = onDismissCrashConfirmation,
       title = { Text("Crash app?") },
       text = { Text("This will throw an uncaught exception and close the sample app.") },
       dismissButton = {
-        TextButton(onClick = { showCrashConfirmation = false }) { Text("Cancel") }
+        TextButton(onClick = onDismissCrashConfirmation) { Text("Cancel") }
       },
       confirmButton = {
         TextButton(
           onClick = {
-            showCrashConfirmation = false
+            onDismissCrashConfirmation()
             crashSampleApp("Nav3")
           }
         ) {
@@ -636,13 +657,19 @@ private fun Nav3TopBar(
           style = MaterialTheme.typography.titleLarge,
           modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = onTransactionHistoryClick) {
+        IconButton(
+          onClick = onTransactionHistoryClick,
+          modifier = Modifier.sentryTag(nav3InteractionTag("Recent Transactions")),
+        ) {
           Icon(
             imageVector = Icons.Filled.AccountTree,
             contentDescription = "Recent transactions",
           )
         }
-        IconButton(onClick = onRouteWorkSettingsClick) {
+        IconButton(
+          onClick = onRouteWorkSettingsClick,
+          modifier = Modifier.sentryTag(nav3InteractionTag("Route Work Settings")),
+        ) {
           Icon(imageVector = Icons.Filled.Settings, contentDescription = "Route work settings")
         }
       }
@@ -674,7 +701,14 @@ private fun Nav3Route.routeSpec(): Nav2RouteSpec =
   when (this) {
     Nav3Route.Landing -> Nav2RouteSpecs.landing
     Nav3Route.SingleStack -> Nav2RouteSpecs.home
-    Nav3Route.DeepLink -> Nav2RouteSpecs.deepLink
+    Nav3Route.DeepLink ->
+      Nav2RouteSpec(
+        routeName = Nav3Route.DeepLink.routeName,
+        title = "Deep Link",
+        description =
+          "Simulates opening a deep link that builds a synthetic backstack before landing on a " +
+            "detail destination.",
+      )
     Nav3Route.ProductList -> Nav2RouteSpecs.productList
     is Nav3Route.ProductDetail -> Nav2RouteSpecs.productDetail
     is Nav3Route.Checkout -> Nav2RouteSpecs.checkout
@@ -700,18 +734,38 @@ private fun ScenarioBar(
   onScenarioSelected: (Nav3Scenario) -> Unit,
 ) {
   val scenarios = Nav3Scenario.entries.filter { scenario -> scenario.showTab }
-  val selectedTabIndex = scenarios.indexOf(selectedScenario).takeIf { index -> index >= 0 } ?: 0
 
-  PrimaryScrollableTabRow(
-    selectedTabIndex = selectedTabIndex,
-    edgePadding = 16.dp,
+  Row(
+    modifier =
+      Modifier.fillMaxWidth()
+        .horizontalScroll(rememberScrollState())
+        .padding(start = 24.dp, end = 24.dp)
   ) {
     scenarios.forEach { scenario ->
-      Tab(
-        selected = selectedScenario == scenario,
-        onClick = { onScenarioSelected(scenario) },
-        text = { Text(scenario.label) },
-      )
+      val selected = selectedScenario == scenario
+      Column(
+        modifier =
+          Modifier.defaultMinSize(minWidth = 120.dp).clickable { onScenarioSelected(scenario) },
+        horizontalAlignment = Alignment.CenterHorizontally,
+      ) {
+        Text(
+          text = scenario.label,
+          modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+          color =
+            if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onBackground,
+          fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+        )
+        Box(
+          modifier =
+            Modifier.fillMaxWidth()
+              .height(3.dp)
+              .background(
+                if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp),
+              )
+        )
+      }
     }
   }
 }
@@ -744,14 +798,38 @@ private fun SentryControls(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.Bottom,
       ) {
-        Button(onClick = onCaptureException, modifier = Modifier.weight(1f)) {
-          Text("Capture Exception")
-        }
-        Button(onClick = onCrashApp, modifier = Modifier.weight(1f)) {
-          Text("Crash App")
-        }
+        Nav3SentryButton(
+          label = "Capture Exception",
+          onClick = onCaptureException,
+          modifier = Modifier.weight(1f),
+        )
+        Nav3SentryButton(
+          label = "Crash App",
+          onClick = onCrashApp,
+          modifier = Modifier.weight(1f),
+        )
       }
     }
+  }
+}
+
+@Composable
+private fun Nav3SentryButton(
+  label: String,
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+  interactionLabel: String = label,
+) {
+  Button(
+    onClick = onClick,
+    modifier = modifier.sentryTag(nav3InteractionTag(interactionLabel)),
+    colors =
+      ButtonDefaults.buttonColors(
+        containerColor = colorResource(R.color.colorAccentSoft),
+        contentColor = Color.White,
+      ),
+  ) {
+    Text(label)
   }
 }
 
@@ -838,7 +916,7 @@ private fun LandingRoute() {
 
 @Composable
 private fun DeepLinkRoute(backStack: SnapshotStateList<Nav3Route>) {
-  RouteScaffold(routeSpec = Nav2RouteSpecs.deepLink) {
+  RouteScaffold(routeSpec = Nav3Route.DeepLink.routeSpec()) {
     RouteButton("Go to deep link destination") { backStack.openSyntheticProductDeepLink() }
   }
 }
@@ -857,14 +935,25 @@ private fun DialogsAndSheetsRoute(backStack: SnapshotStateList<Nav3Route>) {
 
 @Composable
 private fun ProductListRoute(backStack: SnapshotStateList<Nav3Route>) {
+  var showProductList by rememberSaveable { mutableStateOf(true) }
+
   RouteScaffold(routeSpec = Nav2RouteSpecs.productList) {
-    RouteButton("Open Product 42") {
-      backStack.add(
-        Nav3Route.ProductDetail(productId = "42", source = "product-list", campaign = "summer-sale")
-      )
+    RouteButton(if (showProductList) "Hide Product List" else "Add Product List") {
+      showProductList = !showProductList
     }
-    RouteButton("Open Product 7") {
-      backStack.add(Nav3Route.ProductDetail(productId = "7", source = "product-list"))
+    if (showProductList) {
+      RouteButton("Open Product 42") {
+        backStack.add(
+          Nav3Route.ProductDetail(
+            productId = "42",
+            source = "product-list",
+            campaign = "summer-sale",
+          )
+        )
+      }
+      RouteButton("Open Product 7") {
+        backStack.add(Nav3Route.ProductDetail(productId = "7", source = "product-list"))
+      }
     }
   }
 }
@@ -938,18 +1027,18 @@ private fun PromoDialogRoute(
       routeSpec.displayArguments(route.arguments).forEach { (label, value) ->
         Text("$label=$value")
       }
-      Button(
+      Nav3SentryButton(
+        label = "Capture Exception",
         onClick = onCaptureException,
-        modifier = Modifier.fillMaxWidth().sentryTag(nav3InteractionTag("Promo Dialog Exception")),
-      ) {
-        Text("Capture Exception")
-      }
-      Button(
+        modifier = Modifier.fillMaxWidth(),
+        interactionLabel = "Promo Dialog Exception",
+      )
+      Nav3SentryButton(
+        label = "Crash App",
         onClick = onCrashApp,
-        modifier = Modifier.fillMaxWidth().sentryTag(nav3InteractionTag("Promo Dialog Crash App")),
-      ) {
-        Text("Crash App")
-      }
+        modifier = Modifier.fillMaxWidth(),
+        interactionLabel = "Promo Dialog Crash App",
+      )
       Button(
         onClick = { backStack.removeLastOrNull() },
         modifier = Modifier.fillMaxWidth().sentryTag(nav3InteractionTag("Promo Dialog Dismiss")),
@@ -975,18 +1064,18 @@ private fun ShareSheetRoute(
     Text(routeSpec.title, style = MaterialTheme.typography.headlineSmall)
     routeSpec.description?.let { Text(it) }
     routeSpec.displayArguments(route.arguments).forEach { (label, value) -> Text("$label=$value") }
-    Button(
+    Nav3SentryButton(
+      label = "Capture Exception",
       onClick = onCaptureException,
-      modifier = Modifier.fillMaxWidth().sentryTag(nav3InteractionTag("Share Sheet Exception")),
-    ) {
-      Text("Capture Exception")
-    }
-    Button(
+      modifier = Modifier.fillMaxWidth(),
+      interactionLabel = "Share Sheet Exception",
+    )
+    Nav3SentryButton(
+      label = "Crash App",
       onClick = onCrashApp,
-      modifier = Modifier.fillMaxWidth().sentryTag(nav3InteractionTag("Share Sheet Crash App")),
-    ) {
-      Text("Crash App")
-    }
+      modifier = Modifier.fillMaxWidth(),
+      interactionLabel = "Share Sheet Crash App",
+    )
     Button(
       onClick = { backStack.removeLastOrNull() },
       modifier = Modifier.fillMaxWidth().sentryTag(nav3InteractionTag("Share Sheet Done")),
@@ -1410,7 +1499,12 @@ private fun RouteScaffold(
 
 @Composable
 private fun RouteButton(label: String, onClick: () -> Unit) {
-  Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text(label) }
+  Button(
+    onClick = onClick,
+    modifier = Modifier.fillMaxWidth().sentryTag(nav3InteractionTag(label)),
+  ) {
+    Text(label)
+  }
 }
 
 @Composable
@@ -1563,7 +1657,7 @@ private sealed interface Nav3Route {
 private enum class Nav3Scenario(val label: String, val showTab: Boolean = true) {
   LANDING(Nav2RouteNames.LANDING, showTab = false),
   SINGLE_STACK("Single Stack"),
-  DIALOGS_SHEETS("Dialogs & Sheets"),
+  DIALOGS_SHEETS("Dialogs & Sheets", showTab = false),
   DEEP_LINK("Deep Link"),
   MULTIPANE("Multipane"),
   MULTIPLE_STACKS("Multistack"),
